@@ -3,54 +3,78 @@ import pandas as pd
 import requests
 import matplotlib.pyplot as plt
 
+# --- BAGIAN BARU: KAMUS PENERJEMAH ---
+# Menerjemahkan Ticker dari Exchange ke ID CoinGecko
+# Anda bisa menambahkan koin lain di sini jika diperlukan
+TICKER_TO_ID_MAP = {
+    'BTC': 'bitcoin',
+    'ETH': 'ethereum',
+    'BNB': 'binancecoin',
+    'USDT': 'tether',
+    'SOL': 'solana',
+    'XRP': 'ripple',
+    'ADA': 'cardano',
+    'DOGE': 'dogecoin',
+    # Tambahkan koin lain di sini, contoh: 'MATIC': 'matic-network'
+}
+
 st.set_page_config(layout="wide")
-st.title("Dashboard Portofolio Kripto Fleksibel ⚙️")
+st.title("Dashboard Portofolio Universal 🔮")
+st.write("Didesain untuk membaca berbagai format file CSV dari Binance, Bitget, dll.")
 
 uploaded_file = st.file_uploader("Pilih file data transaksi CSV dari exchange manapun", type="csv")
 
 if uploaded_file is not None:
     try:
-        # Baca file CSV yang diunggah
-        df = pd.read_csv(uploaded_file)
+        df_raw = pd.read_csv(uploaded_file)
         
-        st.header("1. Pemetaan Kolom")
-        st.write("Beri tahu kami kolom mana yang harus digunakan dari file Anda.")
+        st.header("Langkah 1: Pratinjau & Pemetaan Kolom")
+        st.write("Ini adalah 5 baris pertama dari data mentah Anda:")
+        st.dataframe(df_raw.head())
         
-        # Ambil semua nama kolom dari file
-        column_headers = df.columns.tolist()
+        column_headers = df_raw.columns.tolist()
         
-        # Buat 3 kolom untuk pilihan dropdown
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            # Dropdown untuk memilih kolom ID Koin
-            # PENTING: ID koin harus sesuai dengan API CoinGecko (e.g., 'bitcoin', 'ethereum')
-            selected_id_col = st.selectbox("Pilih kolom untuk NAMA KOIN:", column_headers)
-        
+            selected_coin_col = st.selectbox("Pilih kolom NAMA KOIN (contoh: 'BTC/USDT' atau 'BTC'):", column_headers)
         with col2:
-            # Dropdown untuk memilih kolom Jumlah
-            selected_jumlah_col = st.selectbox("Pilih kolom untuk JUMLAH:", column_headers)
-            
+            selected_jumlah_col = st.selectbox("Pilih kolom JUMLAH KOIN:", column_headers)
         with col3:
-            # Dropdown untuk memilih kolom Harga Beli
-            selected_harga_col = st.selectbox("Pilih kolom untuk HARGA BELI:", column_headers)
+            selected_harga_col = st.selectbox("Pilih kolom HARGA BELI per koin:", column_headers)
 
-        st.info("Pastikan kolom 'NAMA KOIN' berisi ID yang dikenali CoinGecko (contoh: 'bitcoin', bukan 'BTC').")
+        if st.button("Proses Data"):
+            # --- BAGIAN BARU: Pembersihan dan Standarisasi Data ---
+            st.header("Langkah 2: Hasil Proses & Dashboard")
+            
+            # 1. Buat DataFrame awal berdasarkan pemetaan pengguna
+            df_mapped = pd.DataFrame({
+                'pair': df_raw[selected_coin_col],
+                'jumlah': df_raw[selected_jumlah_col],
+                'harga_beli_usd': df_raw[selected_harga_col]
+            })
 
-        # Tombol untuk memulai proses setelah pemetaan selesai
-        if st.button("Proses Data & Tampilkan Dashboard"):
-            # Buat DataFrame baru dengan nama kolom standar
-            try:
-                portfolio_df = pd.DataFrame({
-                    'id_koin': df[selected_id_col],
-                    'jumlah': df[selected_jumlah_col],
-                    'harga_beli_usd': df[selected_harga_col]
-                })
+            # 2. Ekstrak Ticker (mengambil 'BTC' dari 'BTC/USDT' atau 'BTCBUSD')
+            df_mapped['ticker'] = df_mapped['pair'].apply(lambda x: str(x).split('/')[0].split('USDT')[0].split('BUSD')[0].upper())
 
-                # Hapus baris dimana ada data yang kosong
-                portfolio_df.dropna(inplace=True)
+            # 3. Terjemahkan Ticker ke ID CoinGecko menggunakan kamus
+            df_mapped['id_koin'] = df_mapped['ticker'].map(TICKER_TO_ID_MAP)
+
+            # 4. Bersihkan data: hapus baris yang koinnya tidak ada di kamus
+            original_rows = len(df_mapped)
+            df_mapped.dropna(subset=['id_koin'], inplace=True)
+            cleaned_rows = len(df_mapped)
+            if original_rows > cleaned_rows:
+                st.warning(f"{original_rows - cleaned_rows} baris transaksi dihapus karena koinnya tidak ada dalam kamus penerjemah.")
+
+            # 5. Konversi kolom angka, paksa error menjadi data kosong (NaN) lalu hapus
+            df_mapped['jumlah'] = pd.to_numeric(df_mapped['jumlah'], errors='coerce')
+            df_mapped['harga_beli_usd'] = pd.to_numeric(df_mapped['harga_beli_usd'], errors='coerce')
+            df_mapped.dropna(subset=['jumlah', 'harga_beli_usd'], inplace=True)
+            
+            # --- Sisa skrip kalkulasi dan visualisasi (tidak berubah) ---
+            if not df_mapped.empty:
+                portfolio_df = df_mapped
                 
-                # --- Sisa skrip sama persis seperti sebelumnya ---
                 coin_ids_list = portfolio_df['id_koin'].unique().tolist()
                 
                 ids_string = ','.join(coin_ids_list)
@@ -60,8 +84,8 @@ if uploaded_file is not None:
                 current_prices = {key: value['usd'] for key, value in price_data.items()}
 
                 portfolio_df['harga_terkini_usd'] = portfolio_df['id_koin'].map(current_prices)
-                portfolio_df['modal_usd'] = portfolio_df['jumlah'].astype(float) * portfolio_df['harga_beli_usd'].astype(float)
-                portfolio_df['nilai_terkini_usd'] = portfolio_df['jumlah'].astype(float) * portfolio_df['harga_terkini_usd'].astype(float)
+                portfolio_df['modal_usd'] = portfolio_df['jumlah'] * portfolio_df['harga_beli_usd']
+                portfolio_df['nilai_terkini_usd'] = portfolio_df['jumlah'] * portfolio_df['harga_terkini_usd']
                 portfolio_df['pnl_usd'] = portfolio_df['nilai_terkini_usd'] - portfolio_df['modal_usd']
                 
                 summary_df = portfolio_df.groupby('id_koin').agg(
@@ -70,8 +94,6 @@ if uploaded_file is not None:
                     pnl_usd=('pnl_usd', 'sum')
                 ).reset_index()
 
-                st.header("2. Ringkasan Kinerja")
-                # ... (Sisa kode untuk menampilkan KPI dan Grafik sama persis)
                 total_modal = summary_df['modal_usd'].sum()
                 total_nilai_terkini = summary_df['nilai_terkini_usd'].sum()
                 total_pnl = summary_df['pnl_usd'].sum()
@@ -82,9 +104,6 @@ if uploaded_file is not None:
                 kpi2.metric("Nilai Saat Ini", f"${total_nilai_terkini:,.2f}")
                 kpi3.metric("Total PnL", f"${total_pnl:,.2f}", f"{total_pnl_percent:.2f}%")
                 
-                st.markdown("---")
-
-                st.header("3. Analisis Aset")
                 chart1, chart2 = st.columns(2)
                 with chart1:
                     st.subheader("Komposisi Portofolio")
@@ -94,18 +113,18 @@ if uploaded_file is not None:
                     st.pyplot(fig1)
 
                 with chart2:
-                    st.subheader("Profit & Loss (PnL) per Aset")
+                    st.subheader("PnL per Aset")
                     fig2, ax2 = plt.subplots()
                     pnl_sorted = summary_df.sort_values('pnl_usd', ascending=False)
                     colors = ['#4CAF50' if x >= 0 else '#F44336' for x in pnl_sorted['pnl_usd']]
                     ax2.bar(pnl_sorted['id_koin'], pnl_sorted['pnl_usd'], color=colors)
                     plt.xticks(rotation=45)
                     st.pyplot(fig2)
-
-            except Exception as e:
-                st.error(f"Gagal memproses data setelah pemetaan. Pastikan kolom yang dipilih sesuai. Error: {e}")
+            else:
+                st.error("Tidak ada data yang valid untuk ditampilkan setelah proses pembersihan.")
 
     except Exception as e:
-        st.error(f"Tidak dapat membaca file CSV. Error: {e}")
+        st.error(f"Terjadi error. Pastikan file yang diupload adalah CSV. Error: {e}")
+
 else:
     st.info("Silakan upload file transaksi Anda untuk memulai.")
