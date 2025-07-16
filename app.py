@@ -1,55 +1,103 @@
-
+# 1. IMPORT PUSTAKA YANG DIBUTUHKAN
 import streamlit as st
 import pandas as pd
-# Asumsikan fungsi get_current_prices() dan kode untuk kalkulasi PnL sudah ada di atas
+import requests
+import matplotlib.pyplot as plt
 
-st.title("Dashboard Portofolio Kripto 📈")
+# 2. KONFIGURASI HALAMAN APLIKASI
+st.set_page_config(
+    page_title="Dashboard Portofolio Kripto",
+    page_icon="📈",
+    layout="wide"
+)
 
-try:
-    # Asumsikan 'summary_df' sudah berhasil dibuat dan berisi kolom:
-    # 'id_koin', 'modal_usd', 'nilai_terkini_usd', 'pnl_usd'
-    
-    # --- MULAI BAGIAN BARU ---
+# 3. JUDUL UTAMA APLIKASI
+st.title("Dashboard Portofolio Kripto Anda 📈")
 
-    st.header("Ringkasan Kinerja")
+# 4. FUNGSI UNTUK MENGAMBIL HARGA TERKINI DARI API
+def get_current_prices(coin_ids):
+    """Mengambil harga terkini dari daftar ID koin menggunakan API CoinGecko."""
+    try:
+        ids_string = ','.join(coin_ids)
+        url = f'https://api.coingecko.com/api/v3/simple/price?ids={ids_string}&vs_currencies=usd'
+        response = requests.get(url)
+        response.raise_for_status()  # Error jika request gagal
+        price_data = response.json()
+        return {key: value['usd'] for key, value in price_data.items()}
+    except requests.exceptions.RequestException as e:
+        st.error(f"Gagal mengambil data harga dari API: {e}")
+        return None
 
-    # 1. Hitung Metrik Utama
-    total_modal = summary_df['modal_usd'].sum()
-    total_nilai_terkini = summary_df['nilai_terkini_usd'].sum()
-    total_pnl = summary_df['pnl_usd'].sum()
-    # Hindari pembagian dengan nol jika modal adalah 0
-    total_pnl_percent = (total_pnl / total_modal) * 100 if total_modal != 0 else 0
+# 5. FITUR UPLOAD FILE
+uploaded_file = st.file_uploader("Upload file data transaksi Anda (format .csv)", type=["csv"])
 
-    # 2. Tampilkan Metrik dalam Kolom
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Modal", f"${total_modal:,.2f}")
-    col2.metric("Nilai Saat Ini", f"${total_nilai_terkini:,.2f}")
-    col3.metric("Total PnL", f"${total_pnl:,.2f}", f"{total_pnl_percent:.2f}%")
+# --- SEMUA PROSES DI BAWAH HANYA AKAN BERJALAN JIKA FILE SUDAH DI-UPLOAD ---
+if uploaded_file is not None:
+    try:
+        # 6. BACA DAN PROSES DATA AWAL
+        portfolio_df = pd.read_csv(uploaded_file)
+        coin_ids_list = portfolio_df['id_koin'].unique().tolist()
+        
+        # 7. AMBIL HARGA TERKINI
+        current_prices = get_current_prices(coin_ids_list)
 
-    st.markdown("---") # Garis pemisah
+        # --- SEMUA KALKULASI DI BAWAH HANYA AKAN BERJALAN JIKA HARGA BERHASIL DIAMBIL ---
+        if current_prices:
+            # 8. KALKULASI UTAMA (MODAL, NILAI, PNL)
+            portfolio_df['harga_terkini_usd'] = portfolio_df['id_koin'].map(current_prices)
+            portfolio_df['modal_usd'] = portfolio_df['jumlah'] * portfolio_df['harga_beli_usd']
+            portfolio_df['nilai_terkini_usd'] = portfolio_df['jumlah'] * portfolio_df['harga_terkini_usd']
+            portfolio_df['pnl_usd'] = portfolio_df['nilai_terkini_usd'] - portfolio_df['modal_usd']
+            
+            # Membuat 'summary_df' dengan mengelompokkan data
+            summary_df = portfolio_df.groupby('id_koin').agg(
+                modal_usd=('modal_usd', 'sum'),
+                nilai_terkini_usd=('nilai_terkini_usd', 'sum'),
+                pnl_usd=('pnl_usd', 'sum')
+            ).reset_index()
 
-    # 3. Tampilkan Grafik Bersebelahan
-    st.header("Analisis Aset")
-    
-    # Asumsikan 'fig1' (pie chart) dan 'fig2' (bar chart) sudah dibuat
-    col_chart1, col_chart2 = st.columns(2)
-    with col_chart1:
-        st.subheader("Komposisi Portofolio")
-        # Ganti st.savefig() dengan st.pyplot(fig1)
-        # st.pyplot(fig1) 
-        st.write("Tempat untuk Pie Chart Anda") # Placeholder jika belum ada
+            # 9. TAMPILKAN RINGKASAN KINERJA (KPI)
+            st.header("Ringkasan Kinerja")
+            total_modal = summary_df['modal_usd'].sum()
+            total_nilai_terkini = summary_df['nilai_terkini_usd'].sum()
+            total_pnl = summary_df['pnl_usd'].sum()
+            total_pnl_percent = (total_pnl / total_modal) * 100 if total_modal != 0 else 0
 
-    with col_chart2:
-        st.subheader("PnL per Aset")
-        # Ganti st.savefig() dengan st.pyplot(fig2)
-        # st.pyplot(fig2)
-        st.write("Tempat untuk Bar Chart Anda") # Placeholder jika belum ada
-    
-    # Menampilkan tabel data mentah di bagian bawah
-    st.header("Data Rinci")
-    st.dataframe(summary_df)
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Modal", f"${total_modal:,.2f}")
+            col2.metric("Nilai Saat Ini", f"${total_nilai_terkini:,.2f}")
+            col3.metric("Total PnL", f"${total_pnl:,.2f}", f"{total_pnl_percent:.2f}%")
 
-    # --- AKHIR BAGIAN BARU ---
+            st.markdown("---")
 
-except Exception as e:
-    st.error(f"Terjadi error: {e}")
+            # 10. TAMPILKAN VISUALISASI DATA (GRAFIK)
+            st.header("Analisis Aset")
+            col_chart1, col_chart2 = st.columns(2)
+
+            with col_chart1:
+                # Membuat Pie Chart
+                st.subheader("Komposisi Portofolio")
+                fig1, ax1 = plt.subplots()
+                ax1.pie(summary_df['nilai_terkini_usd'], labels=summary_df['id_koin'], autopct='%1.1f%%', startangle=90)
+                ax1.axis('equal')
+                st.pyplot(fig1)
+
+            with col_chart2:
+                # Membuat Bar Chart
+                st.subheader("Profit & Loss (PnL) per Aset")
+                fig2, ax2 = plt.subplots()
+                pnl_sorted = summary_df.sort_values('pnl_usd', ascending=False)
+                colors = ['#4CAF50' if x >= 0 else '#F44336' for x in pnl_sorted['pnl_usd']]
+                ax2.bar(pnl_sorted['id_koin'], pnl_sorted['pnl_usd'], color=colors)
+                plt.xticks(rotation=45)
+                st.pyplot(fig2)
+
+            # 11. TAMPILKAN TABEL DATA RINCI
+            st.header("Data Rinci")
+            st.dataframe(summary_df)
+
+    except Exception as e:
+        st.error(f"Terjadi error saat memproses file Anda: {e}")
+else:
+    # Pesan yang akan muncul saat belum ada file yang di-upload
+    st.info("Silakan upload file data transaksi Anda untuk memulai analisis.")
