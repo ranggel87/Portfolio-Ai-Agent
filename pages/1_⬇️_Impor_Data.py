@@ -48,7 +48,7 @@ def parse_binance(df):
 
 def parse_bitget(df):
     df_std = pd.DataFrame()
-    df_std['timestamp'] = pd.to_datetime(df['created at'])
+    df_std['timestamp'] = pd.to_datetime(df['Date(UTC)'])
     df_std['pair'] = df['symbol']
     df_std['tipe_transaksi'] = df['trade side'].str.lower()
     df_std['harga_beli_usd'] = pd.to_numeric(df['order price'])
