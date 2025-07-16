@@ -39,7 +39,7 @@ def save_data(df_new):
 # --- Fungsi Parser untuk setiap Exchange ---
 def parse_binance(df):
     df_std = pd.DataFrame()
-    df_std['timestamp'] = pd.to_datetime(df['Date'], unit='ms')
+   df_std['timestamp'] = pd.to_datetime(df['Date(UTC)'])
     df_std['pair'] = df['Pair']
     df_std['tipe_transaksi'] = df['Side'].str.lower()
     df_std['harga_beli_usd'] = pd.to_numeric(df['Price'])
